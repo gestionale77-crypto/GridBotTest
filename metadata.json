@@ -1,0 +1,6 @@
+{
+  "name": "Grid Trading Station",
+  "description": "A quantitative trading station that monitors live mathematical market indicators and executes mathematically optimized grid strategies.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
