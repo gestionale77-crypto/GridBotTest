@@ -31,8 +31,10 @@ export default function MarketIntelligence({ symbol, onIndicatorsLoaded }: Props
 
   const fetchMetrics = async () => {
     try {
-      setLoading(true);
       setError(null);
+      if (!indicators) {
+        setLoading(true);
+      }
 
       const [matrixRes, riskRes] = await Promise.all([
         fetch(`/api/mathematical-matrix?symbol=${symbol}`),
@@ -46,7 +48,8 @@ export default function MarketIntelligence({ symbol, onIndicatorsLoaded }: Props
       const matrixType = matrixRes.headers.get('content-type');
       const riskType = riskRes.headers.get('content-type');
       if (!matrixType || !matrixType.includes('application/json') || !riskType || !riskType.includes('application/json')) {
-        throw new Error('Response is not JSON');
+        console.warn('[MarketIntelligence] Response is not JSON. Skipping update for this tick.');
+        return;
       }
 
       const matrixData = await matrixRes.json();
@@ -66,11 +69,13 @@ export default function MarketIntelligence({ symbol, onIndicatorsLoaded }: Props
       if (onIndicatorsLoaded && matrixData.indicators) {
         onIndicatorsLoaded(matrixData.indicators);
       }
+      setLoading(false);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Error loading live metrics');
-    } finally {
-      setLoading(false);
+      if (!indicators) {
+        setError(err.message || 'Error loading live metrics');
+        setLoading(false);
+      }
     }
   };
 

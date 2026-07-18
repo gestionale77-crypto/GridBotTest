@@ -152,6 +152,10 @@ export class HyperliquidPrivateService {
     };
   }
 
+  public getRawCredentials(): HyperliquidCredentials | null {
+    return this.credentials;
+  }
+
   /**
    * Fetches user's clearinghouse state and updates cache
    */
@@ -278,6 +282,13 @@ export class HyperliquidPrivateService {
       healthChecklist: this.getSystemHealthChecklist(),
       credentials: this.getCredentials(),
       latency: this.restLatency,
+      envSecrets: {
+        hasWalletAddress: !!process.env.HYPERLIQUID_WALLET_ADDRESS,
+        hasPrivateKey: !!process.env.HYPERLIQUID_PRIVATE_KEY,
+        hasGeminiApiKey: !!process.env.GEMINI_API_KEY,
+        walletAddress: process.env.HYPERLIQUID_WALLET_ADDRESS ? `${process.env.HYPERLIQUID_WALLET_ADDRESS.substring(0, 6)}...${process.env.HYPERLIQUID_WALLET_ADDRESS.substring(process.env.HYPERLIQUID_WALLET_ADDRESS.length - 4)}` : null,
+        useTestnet: process.env.HYPERLIQUID_USE_TESTNET === 'true'
+      }
     };
   }
 }

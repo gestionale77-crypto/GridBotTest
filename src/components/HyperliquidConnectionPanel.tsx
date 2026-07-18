@@ -307,6 +307,58 @@ export default function HyperliquidConnectionPanel({ onStateChange, refreshTrigg
                 <span>{successMessage}</span>
               </div>
             )}
+
+            {/* Environment Secrets Status Panel */}
+            {hlState.envSecrets && (
+              <div className="mt-5 pt-5 border-t border-[#1f2937] space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-[11px] font-mono text-gray-400">Environment Secrets (AI Studio Settings)</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${hlState.envSecrets.hasGeminiApiKey ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                      GEMINI_API: {hlState.envSecrets.hasGeminiApiKey ? '✓ CONFIGURED' : '✗ MISSING'}
+                    </span>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${hlState.envSecrets.hasWalletAddress ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'}`}>
+                      WALLET: {hlState.envSecrets.hasWalletAddress ? `✓ ${hlState.envSecrets.walletAddress}` : '✗ UNSET'}
+                    </span>
+                    {hlState.envSecrets.hasWalletAddress && (
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${hlState.envSecrets.hasPrivateKey ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
+                        PVT_KEY: {hlState.envSecrets.hasPrivateKey ? '✓ SIGNING READY' : '✗ NO SIGNING'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {hlState.envSecrets.hasWalletAddress && !hlState.connected && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setActionLoading(true);
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                      try {
+                        const res = await fetch('/api/hl/connect-env', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok || data.error) {
+                          throw new Error(data.error || 'Failed to connect using environment secrets.');
+                        }
+                        setHlState(data);
+                        setSuccessMessage(`Successfully connected via Hyperliquid wallet address: ${data.credentials?.walletAddressMasked}`);
+                        if (onStateChange) onStateChange();
+                      } catch (err: any) {
+                        setErrorMessage(err.message || 'Auto-connect via secrets failed.');
+                      } finally {
+                        setActionLoading(false);
+                      }
+                    }}
+                    disabled={actionLoading}
+                    className="w-full bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-mono py-2 px-3 rounded transition-colors flex justify-center items-center space-x-2 disabled:opacity-50"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>⚡ Auto-connect using AI Studio Secrets</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Hyperliquid balances & positions */}
