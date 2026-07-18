@@ -18,7 +18,16 @@ export interface HyperliquidCandle {
 export class HyperliquidPublicService {
   private static instance: HyperliquidPublicService;
   private cache: { [symbol: string]: { data: MarketIndicators; timestamp: number } } = {};
-  private cacheDurationMs = 2500; // 2.5 seconds cache to avoid rate limiting and speed up response time
+  private cacheDurationMs = 1000; // 1 second cache for the compiled result to make price feel real-time
+
+  private candleCache: { [symbol: string]: { data: any[]; timestamp: number } } = {};
+  private candleCacheDurationMs = 30000; // 30 seconds cache for hourly candles (indicator logic)
+
+  private metaCache: { data: any; timestamp: number } | null = null;
+  private metaCacheDurationMs = 12000; // 12 seconds cache for the heavy metaAndAssetCtxs payload (500KB+)
+
+  private midsCache: { data: any; timestamp: number } | null = null;
+  private midsCacheDurationMs = 1000; // 1 second cache for lightweight allMids
 
   private constructor() {}
 
@@ -108,16 +117,39 @@ export class HyperliquidPublicService {
     }
 
     try {
-      // 1. Fetch candles (arranged chronologically for technical analysis)
-      const candlesRaw = await this.getCandles(cleanCoin, '1h', 100);
-      const candles = [...candlesRaw].sort((a, b) => a.ts - b.ts); // Ensure ascending chronological order
+      // 1. Fetch candles with cache (since technical indicators change slowly)
+      let candles: any[] = [];
+      if (this.candleCache[symbol] && (now - this.candleCache[symbol].timestamp < this.candleCacheDurationMs)) {
+        candles = this.candleCache[symbol].data;
+      } else {
+        try {
+          const candlesRaw = await this.getCandles(cleanCoin, '1h', 100);
+          candles = [...candlesRaw].sort((a, b) => a.ts - b.ts); // Ensure ascending chronological order
+          this.candleCache[symbol] = { data: candles, timestamp: now };
+        } catch (err) {
+          console.warn(`Could not fetch candles for ${cleanCoin}, trying to use cached candles if available:`, err);
+          if (this.candleCache[symbol]) {
+            candles = this.candleCache[symbol].data;
+          } else {
+            candles = this.getFallbackCandles(cleanCoin, 100);
+          }
+        }
+      }
 
-      // 2. Fetch meta & asset context
+      // 2. Fetch meta & asset context with cache (heavy payload, updates slowly)
       let metaAndCtxs: any = null;
-      try {
-        metaAndCtxs = await this.fetchWithTimeout(HYPERLIQUID_INFO_URL, { type: 'metaAndAssetCtxs' }, 3500);
-      } catch (err) {
-        console.warn(`Could not fetch metaAndAssetCtxs for ${cleanCoin}, will try other fallback methods:`, err);
+      if (this.metaCache && (now - this.metaCache.timestamp < this.metaCacheDurationMs)) {
+        metaAndCtxs = this.metaCache.data;
+      } else {
+        try {
+          metaAndCtxs = await this.fetchWithTimeout(HYPERLIQUID_INFO_URL, { type: 'metaAndAssetCtxs' }, 3500);
+          this.metaCache = { data: metaAndCtxs, timestamp: now };
+        } catch (err) {
+          console.warn(`Could not fetch metaAndAssetCtxs for ${cleanCoin}, trying to use cached metadata:`, err);
+          if (this.metaCache) {
+            metaAndCtxs = this.metaCache.data;
+          }
+        }
       }
 
       let lastPrice = 0;
@@ -140,35 +172,42 @@ export class HyperliquidPublicService {
         }
       }
 
-      // Fallback 1: If price is still 0 (due to rate-limiting/timeouts on metaAndAssetCtxs), query lightweight allMids endpoint
-      if (lastPrice === 0) {
+      // 3. Fetch lightweight live mids for real-time price updates (low bandwidth, updated frequently)
+      let liveMids: any = null;
+      if (this.midsCache && (now - this.midsCache.timestamp < this.midsCacheDurationMs)) {
+        liveMids = this.midsCache.data;
+      } else {
         try {
-          const allMids = await this.fetchWithTimeout(HYPERLIQUID_INFO_URL, { type: 'allMids' }, 2500);
-          if (allMids && allMids[cleanCoin]) {
-            lastPrice = Number(allMids[cleanCoin]);
-            console.log(`Fallback Success: fetched live price for ${cleanCoin} from allMids: ${lastPrice}`);
-          }
+          liveMids = await this.fetchWithTimeout(HYPERLIQUID_INFO_URL, { type: 'allMids' }, 2000);
+          this.midsCache = { data: liveMids, timestamp: now };
         } catch (err) {
-          console.warn(`allMids fallback failed for ${cleanCoin}:`, err);
+          console.warn(`Could not fetch fresh live mids:`, err);
+          if (this.midsCache) {
+            liveMids = this.midsCache.data;
+          }
         }
       }
 
-      // Fallback 2: Get price from the last hourly candle close
+      if (liveMids && liveMids[cleanCoin]) {
+        const freshPrice = Number(liveMids[cleanCoin]);
+        if (freshPrice > 0) {
+          lastPrice = freshPrice;
+        }
+      }
+
+      // Fallback 1: Get price from the last hourly candle close
       if (lastPrice === 0 && candles.length > 0) {
         lastPrice = candles[candles.length - 1].c;
-        console.log(`Fallback Success: using price from last candle close for ${cleanCoin}: ${lastPrice}`);
       }
 
-      // Fallback 3: Use the last cached compiled indicators' price
+      // Fallback 2: Use the last cached compiled indicators' price
       if (lastPrice === 0 && this.cache[symbol]) {
         lastPrice = this.cache[symbol].data.lastPrice;
-        console.log(`Fallback Success: using last cached price for ${cleanCoin}: ${lastPrice}`);
       }
 
-      // Fallback 4 (Absolute Last Resort): Static estimation if completely offline
+      // Fallback 3 (Absolute Last Resort): Static estimation if completely offline
       if (lastPrice === 0) {
         lastPrice = cleanCoin === 'BTC' ? 62970 : cleanCoin === 'ETH' ? 3120 : cleanCoin === 'SOL' ? 142 : cleanCoin === 'HYPE' ? 4.5 : 1.0;
-        console.warn(`Fallback Alert: using hardcoded default price for ${cleanCoin}: ${lastPrice}`);
       }
 
       // Extract high/low from last 24 1h candles

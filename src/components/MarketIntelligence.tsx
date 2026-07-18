@@ -92,8 +92,8 @@ export default function MarketIntelligence({ symbol, onIndicatorsLoaded }: Props
 
   useEffect(() => {
     fetchMetrics();
-    // Poll metrics every 6 seconds for live institutional updates
-    const interval = setInterval(fetchMetrics, 6000);
+    // Poll metrics every 2 seconds for live institutional updates
+    const interval = setInterval(fetchMetrics, 2000);
     return () => clearInterval(interval);
   }, [symbol]);
 
